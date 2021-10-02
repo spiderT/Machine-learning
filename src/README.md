@@ -18,6 +18,22 @@
     - [4.3. 训练模型](#43-训练模型)
     - [4.4. 评估模型](#44-评估模型)
     - [4.5. 模型优化: 用特征工程提高模型效率](#45-模型优化-用特征工程提高模型效率)
+    - [4.6. 模型优化: 防止过拟合](#46-模型优化-防止过拟合)
+      - [4.6.1. 决策树模型的构造和剪枝](#461-决策树模型的构造和剪枝)
+      - [4.6.2. 线性回归模型的正则化](#462-线性回归模型的正则化)
+    - [4.7. 模型优化：交叉验证，同时寻找最优的参数](#47-模型优化交叉验证同时寻找最优的参数)
+  - [5. 深度学习-CNN](#5-深度学习-cnn)
+    - [5.1. 数据收集和预处理](#51-数据收集和预处理)
+    - [5.2. 选择算法建立模型](#52-选择算法建立模型)
+    - [5.3. 模型的训练和拟合](#53-模型的训练和拟合)
+    - [5.4. 模型性能的评估](#54-模型性能的评估)
+  - [6. 深度学习-RNN](#6-深度学习-rnn)
+    - [6.1. 收集数据和预处理](#61-收集数据和预处理)
+    - [6.2. 选择算法并建立模型](#62-选择算法并建立模型)
+    - [6.3. 训练并评估模型](#63-训练并评估模型)
+    - [6.4. 利用模型进行预测](#64-利用模型进行预测)
+  - [7. 提升神经网络预测准确率](#7-提升神经网络预测准确率)
+    - [7.1. 数据方面的考量：图像数据增广](#71-数据方面的考量图像数据增广)
 
 ## 1. 漏斗图
 
@@ -880,8 +896,816 @@ drop_first 这个参数。这个参数实际上控制着 get_dummies 函数返�
 
 为什么要构建这三个值？就是因为我们具有运营领域的经验和相关知识，知道 R 值、F 值和 M 值对用户分组画像是重要的因子，能够输入到聚类模型和回归模型中去。所以，要想把原始数据集中的特征工程做好，就要不断积累经验和知识，展开自己的想象力，看看可以构建出什么样有用的新特征，能让机器学习模型学得更好。
 
+### 4.6. 模型优化: 防止过拟合
 
+过拟合是机器学习模型在训练数据集上，通过拟合函数形成的。在过拟合的形成过程中，一般会经历三个阶段：欠拟合、平衡点和过拟合。
+
+在初期的时候，模型对训练集的拟合还未完善，能力不够强， 偏差也比较大。此时的模型就处于欠拟合的状态，把模型应用于测试集数据，效果肯定也不好，所以还需要继续训练。随着训练次数增多，以及模型自身的调整优化，模型的拟合能力变得越来越强，就差不多可以用了。此刻，实际上已经出现了欠拟合和过拟合之间的平衡点。  
+
+然而，如果训练继续进行，模型经过充分训练后，就会完全拟合训练集数据。如果把此时的模型应用于测试集，并不一定能得到好的效果，很容易出现很高的误差。这就是过拟合的状态。
  
+对于过拟合的讨论，多限于监督学习的应用范围，也就是回归和分类两大类问题。
+
+解决过拟合问题的方法都有三个思路：
+
+1. 一般来说，数据点少，模型很容易就能完全描绘出从特征到标签的映射。所以，增加数据集中数据的数量可以在一定程度上防止过拟合。
+2. 如果特征工程做得不好，数据集中的无用信息多，就会放大过拟合的影响，因为模型描绘出来的是无用信息和标签之间关系，当然泛化能力就受影响。所以，进行优质的特征工程，筛除无用的特征，去芜取精，去伪存真，有利于避免过拟合。
+3. 模型比较复杂时，它在训练集上的精度可以想多高就多高，这是因为从数学的角度，多次函数的图像远远比一次、二次函数复杂。模型越复杂，所能够覆盖的特征空间就越大。所以，如果数据集较小，或者说问题比较简单，尽量选择简单的模型。凡事选择简单的解决方案，这个道理人称奥卡姆剃刀定理。
+
+相对而言决策树和线性回归模型比较容易出现过拟合问题，而随机森林则本身就可以基于决策树的过拟合问题实现优化.
+
+#### 4.6.1. 决策树模型的构造和剪枝
+
+决策树算法的原理，它就是将一大堆的 if…else 语句进行连接，直到最后得到想要的结果。算法中的各个节点是根据训练数据集中的特征形成的。在对特征节点的选择不同时，就可以生成很多不一样的决策树。
+
+![决策树](./images/overfit_1.png)
+
+生成一个决策树有两个阶段，分别是构造和剪枝。
+
+构造就是选择什么特征作为节点生成决策树的过程。在构造过程中，有三种节点：
+
+1. 根节点：就是树的最顶端节点。在上图中，“高不高”就是根节点；
+2. 内部节点：就是树中间的那些节点，比如说“富不富”、“美不美”；
+3. 叶节点：就是树最底部的节点，也就是决策结果“同意”或者“不同意”。
+
+在构造过程中，可以根据信息增益的程度来选择哪个属性作为根节点；哪些属性作为子节点；什么时候停止并得到目标状态，也就是叶节点。
+
+在构造的过程中，选择不同的特征作为根节点，然后根节点下面选择不同的特征形成内部节点，就可以得到另外一棵决策树，也就是一个新的模型,由于 if…else 可以无限制地写下去，对于任何训练集，只要树的深度足够，决策树肯定能够达到 100% 的准确率。这并不是一件好事，因为这样的模型认为其它所有数据的特点都和训练集中的数据完全一样的，所以它的泛化能力会很差。对于这种情况，要在构造过程中对决策树进行剪枝，让树的深度不要太深，以免决策树太过于和精确。这样“模糊”一些的决策树，虽然在训练集上面的分数会降低，但是能够得到更强的泛化能力。
+
+剪枝之后树的深度从原来的 3 层变成了 2 层。
+
+![决策树](./images/overfit_2.png)
+
+绿色线是当决策树深度为 5 是的模型拟合状态，蓝色线是决策树深度为 2 时的模型拟合状态。很明显，经过深度为 5 的模型训练集损失小，但深度为 2 的模型，泛化能力会更好。
+
+![决策树](./images/overfit_3.png)
+
+决策树的深度是一个可调的超参数，也就是 max_depth。这个超参数能限制树的最大深度，把超过设定深度的树枝全部剪掉，这也是最常见的剪枝策略。
+
+创建两棵不同决策树模型：一棵是默认的决策树，这个决策树的深度不加限定，将一直分叉直到完全的拟合所有数据点；另一棵是深度为 3 的决策树。分别拟合两棵树，来比较一下它们在训练集和测试集上的分数。
+
+```py
+from sklearn.tree import DecisionTreeRegressor #导入决策树回归模型
+model_dtr = DecisionTreeRegressor() #创建决策树回归模型
+model_dtr_cut = DecisionTreeRegressor(max_depth=3) #创建深度为3的决策树回归模型
+model_dtr.fit(X_train, y_train) #拟合决策树模型
+model_dtr_cut.fit(X_train, y_train) #拟合深度为3的决策树模型
+y_valid_preds_dtr = model_dtr.predict(X_valid) #用决策树模型预测验证集
+y_valid_preds_dtr_cut = model_dtr_cut.predict(X_valid) #用深度为2的决策树模型预测验证集
+from sklearn.metrics import r2_score,   median_absolute_error #导入Sklearn评估模块
+print('训练集上的R平方分数-决策树: %0.4f' % r2_score(y_train, model_dtr.predict(X_train)))
+print('训练集上的R平方分数-深度为3的决策树: %0.4f' % r2_score(y_train, model_dtr_cut.predict(X_train)))
+print('测试集上的R平方分数-决策树: %0.4f' % r2_score(y_valid, model_dtr.predict(X_valid)))
+print('测试集上的R平方分数-深度为3的决策树: %0.4f' % r2_score(y_valid, model_dtr_cut.predict(X_valid)))
+```
+
+分数输出如下：
+
+```text
+训练集上的R平方分数-决策树: 1.0000
+训练集上的R平方分数-深度为3的决策树: 0.8045
+测试集上的R平方分数-决策树: 0.2857
+测试集上的R平方分数-深度为3的决策树: 0.4870
+```
+
+可以看到，未经剪枝的决策树在训练集上的分数是满分，但是在验证集上的得分低得十分离谱。而设定了深度的决策树（也就是剪枝），它的训练集上的分数有所下降，可在验证集上的分数是大幅提升的，体现出了更好的泛化能力。
+
+
+#### 4.6.2. 线性回归模型的正则化
+
+线性回归模型，其实就是通过梯度下降确定参数的过程。如果数据集中有 3 个特征，公式就是：
+
+y=w1​x1​+w2​x2​+w3​x3​+b
+
+如果在 x1​、x2​、x3​ 这些特征中，有某个特征的值域较大，而如果模型拟合的结果中，其权重参数 w 的值也比较大，那么这个特征就会占据“主导”地位，使模型往这些较大值的位置偏移，形成了对这些值的“过拟合”。
+
+如果能让这类特征项的权重参数变小，也许就可以得到更为平衡的模型，来防止过拟合现象的出现。这种在一定程度上减小这些参数的值的方法，就是机器学习中的正则化（regularization）。在损失函数当中加入的正则项也叫惩罚项，也就是给需要训练的函数加上一些规矩、一些限制，让它们不要自我膨胀。
+
+线性回归的损失函数的正则项有两种添加方法，分别叫做 L1 正则项和 L2 正则项。  
+
+添加 L1 正则项之后，一些特征的权重会变小，一些绝对值较小的系数甚至直接变为 0（相当于抛弃了一些特征），来增强模型的泛化能力。这种回归也叫 Lasso 回归。
+
+添加 L2 正则项之后，模型在不抛弃任何一个特征的情况下，会缩小回归系数，也就是某些特征的权重，让模型相对稳定，通常模型的泛化能力也更好。这种回归也叫 Rigde 回归。
+
+创建模型、训练模型并评估模型的代码如下：
+
+```py
+from sklearn.linear_model import LinearRegression #导入线性回归模型
+from sklearn.linear_model import Lasso
+from sklearn.linear_model import Ridge
+model_lr = LinearRegression() #创建线性回归模型
+model_lasso = Lasso() #创建Lasso回归模型
+model_ridge = Ridge() #创建Ridge回归模型
+model_lr.fit(X_train, y_train) #拟合线性回归模型
+model_lasso.fit(X_train, y_train) #拟合Lasso回归模型
+model_ridge.fit(X_train, y_train) #拟合Ridge回归模型
+from sklearn.metrics import r2_score,   median_absolute_error #导入Sklearn评估模块
+print('训练集上的R平方分数-线性回归: %0.4f' % r2_score(y_train, model_lr.predict(X_train)))
+print('训练集上的R平方分数-Lasso回归: %0.4f' % r2_score(y_train, model_lasso.predict(X_train)))
+print('训练集上的R平方分数-Ridge回归: %0.4f' % r2_score(y_train, model_ridge.predict(X_train)))
+print('测试集上的R平方分数-线性回归: %0.4f' % r2_score(y_valid, model_lr.predict(X_valid)))
+print('测试集上的R平方分数-Lasso回归: %0.4f' % r2_score(y_valid, model_lasso.predict(X_valid)))
+print('测试集上的R平方分数-Ridge回归: %0.4f' % r2_score(y_valid, model_ridge.predict(X_valid)))
+```
+
+分数输出如下：
+
+```py
+训练集上的R平方分数-线性回归: 0.6732
+训练集上的R平方分数-Lasso回归: 0.6731
+训练集上的R平方分数-Ridge回归: 0.6354
+测试集上的R平方分数-线性回归: 0.4719
+测试集上的R平方分数-Lasso回归: 0.4737
+测试集上的R平方分数-Ridge回归: 0.4992
+```
+
+从普通线性回归到 Lasso 回归，再到 Ridge 回归，训练集分数呈现下降的趋势，这就是防止过拟合的惩罚项发挥了作用；在测试集上，分数则正好相反，从普通线性回归和 Lasso 回归，再到 Ridge 回归，反而呈现略微升高的趋势。不过，整体来说，差异似乎不是很大，说明目前这个线性回归模型的过拟合现象其实并不明显。
+
+### 4.7. 模型优化：交叉验证，同时寻找最优的参数
+
+交叉验证：小数据集的资源复用.  
+
+在样本充足的情况下，我们会随机将数据分为 3 个部分：训练集、验证集和测试集。其中，训练集用来训练模型，验证集用来模型调优，测试集用来评估模型性能。
+
+数据集越大，就越不容易出现过拟合的现象。那么，我们如何利用较小的数据集，从而达到较大数据集的效果呢？这就需要交叉验证:将训练数据集分为 k 等份，其中 k-1 份用作训练集，单独的那一份用作验证集，整个过程重复 k 次，这也通常称作 k 折。这样就最大程度重复地使用了训练集中的数据，每一个数据都既做了训练，又做了测试，从而在最大程度上提高模型性能的可信度。
+
+交叉验证具体实现起来有 4 个步骤：
+
+1. 随机清洗数据集，将数据集分为训练集和测试集，将测试集预留出来，放在一边。
+2. 将训练数据集分成 k 组（这个 k 值一般是随机设定，比如 3，5，10，实操中以 10 折居多）。在这一步中，我们挑其中 1 组作为验证集，剩下的 k-1 组做训练集（这个过程要重复 k 次）。我们在这些训练集上拟合模型，可以得到 k 个不同的模型。然后再在对应的验证集上对这些模型进行评估，就能得到一系列模型的评估分数。最后，我们把这些评估分数进行平均，这个平均分数就是交叉验证的最终结果了。
+3. 按照步骤 1、2，对多个算法进行交叉验证，比如可以针对线性回归、决策树、随机森林等算法。根据每个算法交叉验证的评估结果，从中挑选效果最好的算法模型。
+4. 使用测试集评估最终模型的分数。
+
+每个数据样本都有 1 次机会进入验证集中，并用于训练模型 k-1 次。这样一来，我们就拥有了更多的数据量。
+
+在交叉验证中，训练集和验证集的拆分可以通过 sklearn.model_selection 中的 KFold 函数实现。
+
+![KFold](./images/KFold.png)
+
+```py
+from sklearn.model_selection import KFold #导入K折工具
+from sklearn.metrics import r2_score #导入R2分数评估工具
+kf5 = KFold(n_splits=5, shuffle=False) #5折验证
+i = 1 
+for train_index, test_index in kf5.split(df_LTV): 
+    X_train = df_LTV.iloc[train_index].drop(['年度LTV'],axis=1) #训练集X
+    X_test = df_LTV.iloc[test_index].drop(['年度LTV'],axis=1) #验证集X
+    y_train = df_LTV.iloc[train_index]['年度LTV'] #训练集y
+    y_test = df_LTV.loc[test_index]['年度LTV'] #验证集y 
+    model_lr.fit(X_train, y_train) #训练模型
+    print(f"第{i}折验证集R2分数：{r2_score(y_test, model_lr.predict(X_test))}") 
+    i += 1
+```
+
+输出如下：
+
+```py
+第1折验证集R2分数：0.5143622747243847
+第2折验证集R2分数：-0.16778272779470416
+第3折验证集R2分数：0.23879516275929713
+第4折验证集R2分数：0.2482389409435588
+第5折验证集R2分数：0.03088299924007265
+```
+
+sklearn 还提供了更简单的方式，不用进行上面的 KFold 拆分过程，只用一个 cross_val_score 函数就能直接完成模型的 K 折拆分、训练和验证，一次性得到交叉验证结果。
+
+```py
+from sklearn.model_selection import cross_val_score # 导入交叉验证工具
+# from sklearn.metrics import mean_squared_error #平均绝对误差
+model_lr = LinearRegression() #线性回归模型
+scores = cross_val_score(model_lr, #线性回归
+                  X_train, #特征集
+                  y_train, #标签集
+                  cv=5, # 五折验证
+                  scoring = 'neg_mean_absolute_error') #平均绝对误差
+for i, score in enumerate(scores):
+    print(f"第{i+1}折验证集平均绝对误差： {-score}")
+```
+
+平均绝对误差，也就是预测值和真值之间的平均差异，误差绝对值越大，效果越不好. 输出的每一折平均绝对误差值如下：
+
+```py
+第1折验证集平均绝对误差：3191.99882739
+第2折验证集平均绝对误差：1402.45679102
+第3折验证集平均绝对误差：1168.49187113
+第4折验证集平均绝对误差：1546.15537555
+第5折验证集平均绝对误差：1138.41271054
+```
+
+> 网格搜索：直到找到最优的参数
+
+scikit-learn 中有一个 GridSearchCV 工具，中文叫做网格搜索，它可以自动调参，轻松找到模型的最优参数。
+
+- 第一步，明确你选择的模型有哪些可调的参数，这个你可以通过查看算法的说明文档来确定；
+- 第二步，把模型中各超参数不同取值的排列组合尽可能多地列出来；
+- 第三步，调用 GridSearchCV 工具，把可能的排列组合都传进去
+
+完成这三步后，GridSearchCV 会在后台创建出一大堆的并行进程，挨个执行各种超参数的组合，同时还会使用交叉验证的方法（名称中的 CV，意思就是 cross validation），来评估每个超参数组合的模型。最后，GridSearchCV 会帮你选定哪个组合是给定模型的最佳超参数值。
+
+官方文档：https://scikit-learn.org/stable/  
+
+在这儿拿出一些重要的超参数来调一下：
+
+![GridSearchCV](./images/GridSearchCV.png)
+
+找出随机森林模型的参数后，需要在程序中定义一个字典对象，列出各个超参数，以及希望去尝试的值组合。
+
+```py
+model_rfr = RandomForestClassifier() # 随机森林模型
+# 对随机森林算法进行参数优化
+rf_param_grid = {"max_depth": [None],
+                  "max_features": [3, 5, 12],
+                  "min_samples_split": [2, 5, 10],
+                  "min_samples_leaf": [3, 5, 10],
+                  "bootstrap": [False],
+                  "n_estimators" :[100,300],
+                  "criterion": ["gini"]}
+```
+
+调用 GridSearchCV 这个函数：
+
+```py
+from sklearn.model_selection import GridSearchCV # 导入网格搜索工具
+model_rfr_gs = GridSearchCV(model_rfr,
+                            param_grid = rfr_param_grid, cv=3,
+                            scoring="r2", n_jobs= 10, verbose = 1)
+model_rfr_gs.fit(X_train, y_train) # 用优化后的参数拟合训练数据集
+```
+
+将 GridSearchCV 返回的最佳参数组合存储在了 rfr_gs 这个新的随机森林模型。然后，系统就会自动计算每种超参数组合拟合出的模型的准确率 / 损失：
+
+```text
+Fitting 3 folds for each of 432 candidates, totalling 1296 fits
+[Parallel(n_jobs=10)]: Using backend LokyBackend with 10 concurrent workers.
+[Parallel(n_jobs=10)]: Done  30 tasks      | elapsed:   22.0s
+[Parallel(n_jobs=10)]: Done 180 tasks      | elapsed:  2.0min
+[Parallel(n_jobs=10)]: Done 430 tasks      | elapsed:  4.8min
+[Parallel(n_jobs=10)]: Done 780 tasks      | elapsed:  8.7min
+[Parallel(n_jobs=10)]: Done 1230 tasks      | elapsed: 12.6min
+[Parallel(n_jobs=10)]: Done 1296 out of 1296 | elapsed: 13.2min finished
+```
+
+注意的是，随机森林模型可能的超参数组合非常多，因此这个训练过程在我们的电脑上可能会持续很久很久，所以我特意没有设定太多的参数组合，而是选取了其中一部分。不过，这个训练过程也是花了十几分钟才搜索完。
+
+经过 GridSearchCV 自动地换参、拟合并自动交叉验证评估后，最佳参数组合实际上已经被选出了，它就被存储在 rfr_gs 这个新的随机森林中，可以直接用它来做预测。调用 rfr_gs 的 best_params_ 属性，来看一下这个最优模型是由哪些超参数组合而成的：
+
+```py
+print(" 最佳参数组合:", rf_gs.best_params_)
+```
+
+输出如下：
+
+```text
+最佳参数组合: {'bootstrap': True, 'max_depth': 10, 'max_features': 'sqrt', 'min_samples_leaf': 2, 'min_samples_split': 2, 'n_estimators': 50}
+```
+
+然后，看看 GridSearchCV 模型的准确性。
+
+```py
+from sklearn.metrics import r2_score,   median_absolute_error #导入Sklearn评估模块
+print('训练集上的R平方分数-调参后的随机森林: %0.4f' % r2_score(y_train, model_rfr_gs.predict(X_train)))
+print('测试集上的R平方分数-调参后的随机森林: %0.4f' % r2_score(y_valid, model_rfr_gs.predict(X_valid)))
+```
+
+输出如下：
+
+```text
+训练集上的R平方分数-随机森林: 0.7729
+测试集上的R平方分数-随机森林: 0.6523
+```
+
+## 5. 深度学习-CNN
+
+案例：根据大量已归类的鲜花图片，来建立一个能识别鲜花的模型，给未归类的图片自动贴标签。是一个典型的分类问题，同时也是一个计算机视觉领域的图片识别问题。
+
+### 5.1. 数据收集和预处理
+
+> 1. 数据的导入及可视化
+
+指定 4 个花朵目录，并通过 Open CV（开源计算机视觉库）工具箱，读入图片的数据。OpenCV 是一个跨平台的开源计算机视觉方面的 API 库，这里应用其中的 imread 和 resize 功能读入并裁剪图片到 150*150 像素：
+
+```py
+import numpy as np # 导入Numpy
+import pandas as pd # 导入Pandas
+import os # 导入OS
+import cv2 # 导入Open CV工具箱
+
+
+print(os.listdir('../input/flowers-recognition/flowers')) #打印目录结构
+daisy_dir='../input/flowers-recognition/flowers/daisy' #雏菊目录
+rose_dir='../input/flowers-recognition/flowers/rose' #玫瑰目录
+sunflower_dir='../input/flowers-recognition/flowers/sunflower' #向日葵目录
+tulip_dir='../input/flowers-recognition/flowers/tulip' #郁金香目录
+
+
+X = [] #初始化
+y_label = [] #初始化
+imgsize = 150 #图片大小
+# 定义一个函数读入花的图片
+def training_data(label,data_dir):
+    print ("正在读入：", data_dir) 
+    for img in os.listdir(data_dir): #目录
+        path = os.path.join(data_dir,img) #目录+文件名
+        img = cv2.imread(path,cv2.IMREAD_COLOR) #读入图片
+        img = cv2.resize(img,(imgsize,imgsize)) #设定图片像素维度
+        X.append(np.array(img)) #X特征集
+        y_label.append(str(label)) #y标签，即花的类别
+# 读入目录中的图片
+training_data('daisy',daisy_dir) #读入雏菊
+training_data('rose',rose_dir) #读入玫瑰
+training_data('sunflower',sunflower_dir) #读入向日葵
+training_data('tulip',tulip_dir) #读入郁金香
+```
+
+> 2. 构建特征集和标签集
+
+用 LabelEncoder 给标签 y 编码，并且把特征集 X 转换为张量数组：
+
+```py
+from sklearn.preprocessing import LabelEncoder # 导入标签编码工具
+from tensorflow.keras.utils import to_categorical # 导入One-hot编码工具
+label_encoder = LabelEncoder()
+y = label_encoder.fit_transform(y_label) # 标签编码
+y = to_categorical(y,4) # 将标签转换为One-hot编码
+X = np.array(X) # 将X从列表转换为张量数组
+```
+
+这时候特征集 X 的格式不再是 DataFrame 表结构，而是 NumPy 数组，在机器学习里，把它称为“张量”，它的形状输出如下：
+
+```py
+array([[[[214, 237, 233],
+         [224, 234, 235],
+         [229, 232, 237],
+         ...,
+         [ 67,  93, 124],
+         [ 63,  91, 121],
+         [ 61,  93, 115]]]], dtype=uint8)
+```
+
+如果用 NumPy 里面 shape（就是张量的形状）的属性，我们就会看到当前特征集 X 的格式是 4 阶的张量。X.shape
+
+```py
+X.shape
+```
+
+输出如下：
+
+```py
+(3265, 150, 150, 3)
+```
+
+表示：一共有 3265 张 150 像素 *150 像素的图片，且所有图片的颜色通道数为 RGB 3。
+
+“4 阶张量”代表了图片数据集中的 4 个维度：行（图片数量）、宽（像素宽）、高（像素高）和颜色通道数，缺少其中任何一个，都无法精准描述这个图片数据集。
+
+如果是视频格式的数据集，则需要 5 阶张量才放得下，其形状为（样本，帧，高度，宽度，颜色深度）。此外，文本数据集通常是 3 阶张量，形状为（样本，序号，字编码）。
+
+![cnn-tensor](./images/cnn-tensor.png)
+
+为什么像图片、视频、文本这样的数据集，特征的维度和整体特征空间，体量都如此巨大。就这么一张小小的 150 * 150 像素的 RGB 图片，特征就有可能达到 150 * 150 * 3 的天文数字。所以，除了深层神经网络之外，传统机器学习方法根本解决不了。  
+
+y 的格式也转换成了 One-hot 编码的张量.
+
+```py
+array([[1., 0., 0., 0.],
+       [1., 0., 0., 0.],
+       [1., 0., 0., 0.],
+       ...,
+       [0., 1., 0., 0.],
+       [0., 1., 0., 0.],
+       [0., 1., 0., 0.]], dtype=float32)
+```
+
+其中，[1., 0., 0., 0.]代表 Daisy（雏菊），[0., 1., 0., 0.]就代表 Rose（玫瑰），[0., 0., 1., 0.]就代表 Sunflower（向日葵），[0., 0., 0., 1.]就代表 Tulip（郁金香）。
+
+> 3. 特征工程和数据集拆分
+
+由于神经网络特别喜欢小范围的数值，这里我们只需要做个归一化处理，把 0-255 的 RPG 像素值压缩到 0-1 之间最好。这个步骤非常重要，不然神经网络会跑不起来：
+
+```py
+X = X/255 # 将X张量归一化
+```
+
+数据集的拆分
+
+```py
+from sklearn.model_selection import train_test_split # 导入拆分工具
+X_train, X_test, y_train, y_test = train_test_split(X, y, #拆分数据集
+                             test_size=0.2,random_state=1)
+```
+
+### 5.2. 选择算法建立模型
+
+对于图像分类识别问题来说，选择深度学习中的卷积神经网络 CNN。
+
+> 1. 选择算法
+
+深层神经网络是由大量的人工神经元相互联结而成，这些神经元都具有可以调整的参数，而训练机器、建立模型的过程，也就是确定网络参数的过程。一旦参数确定，模型也就确定下来了。
+
+![CNN](./images/CNN.png)
+
+深度学习和传统机器学习算法相比，它的优势: 深度学习特别擅长处理非结构化的数据。  
+传统的模型需要先做各种各样的特征工程，让数据变得“计算机友好”，再输入模型进行学习。而深度学习模型则可以自动进行特征提取，因此就省略掉了手工做特征工程的环节。  
+
+在这个领域呈现的是 TensorFlow 和 PyTorch 两强争霸的格局。这二者都是开源项目，一个来自 Google，一个来自 Facebook。PyTorch 因为编辑开发环境更具亲和力，支持快速和动态的训练，现在越来越受学术界和研究型开发者的欢迎，而 TensorFlow 则因为可以直接部署机器学习模型，能快速地开发和构建 AI 相关产品，它仍然在保持着工业界的霸主地位。TensorFlow 的另一个优势是有简单的内置高级 API，这个 API 就是非常有名的 Keras，这也是初学者进入深度学习领域的最佳入门选择。Keras 把 TensorFlow 的底层深度学习功能进行了良好的封装，是最好用、最适合初学者上手的深度学习工具包了。所以，就选择 Keras 来搭建神经网络。
+
+> 2. 建立模型
+
+一个典型的卷积网络结构如下所示，它实现了一个图像分类功能：输入的是图像，输出的是图像的类别标签。
+
+![cnn-cn](./images/cnn-cn.png)
+
+整体来看，卷积神经网络由输入层、一个或多个卷积层和输出层的全连接层组成。
+
+从左往右： 
+
+1. 网络左边是数据输入部分，也就是输入层。这一层会对数据做初始处理，比如标准化、图片压缩、降维等，让最初的数据集变成形状为（ 样本，图像高度，图像宽度，颜色深度）的数据集。
+2. 到了中间的卷积层。这一层主要负责抽取图片的特征，其中的卷积核（上图中红框部分）也叫滤波器，能够自动进行图像特征的提取。一般卷积层之后会接一个池化层，主要用来降低特征空间的维度，其中，池化层又包括最大池化和平均池化，它们的区别就在于输出时计算图片区域池化窗口内元素的最大值还是平均值。通常，卷积 + 池化的架构会重复几次，形成深度卷积网络。在这个过程中，图片特征张量的尺寸通常会逐渐减小，而深度将逐渐加深。就像在图中画的那样，特征图从一张扁扁的纸片形状变成了胖胖的矩形。
+3. 之后是一个展平层，主要负责将网络展平。展平之后通常会接一个普通的全连接层。而最右边的输出层也是全连接层，用 Softmax 进行激活分类输出层，所有神经网络都是用 Softmax 做多分类的激活函数。
+
+卷积网络的核心特点就是“卷积 + 池化”的架构，而“卷积层”中的参数，其实是远少于全连接层的。这是因为卷积网络中各层的神经元之间，包括输入层的特征和卷积层之间，不是彼此全部连接的，而是以卷积的方式有选择性的局部连接。这种结构除了能大大减少参数的数量之外，还有有利于对图像特征的提取。
+
+搭建一个能够为花朵图片分类的卷积神经网络：
+
+```py
+from tensorflow.keras import layers # 导入所有层 行1
+from tensorflow.keras import models # 导入所有模型 行2
+cnn = models.Sequential() # 贯序模型 行3
+cnn.add(layers.Conv2D(32, (3, 3), activation='relu', # 输入卷积层 行4
+                        input_shape=(150, 150, 3))) 
+cnn.add(layers.MaxPooling2D((2, 2))) # 最大池化层 行5
+cnn.add(layers.Conv2D(64, (3, 3), activation='relu')) # 卷积层 行6
+cnn.add(layers.MaxPooling2D((2, 2))) # 最大池化层 行7
+cnn.add(layers.Conv2D(128, (3, 3), activation='relu')) # 卷积层 行8
+cnn.add(layers.MaxPooling2D((2, 2))) # 最大池化层 行9
+cnn.add(layers.Conv2D(128, (3, 3), activation='relu')) # 卷积层 行10
+cnn.add(layers.MaxPooling2D((2, 2))) # 最大池化层 行11
+cnn.add(layers.Flatten()) # 展平层 行12
+cnn.add(layers.Dense(512, activation='relu')) # 全连接层 行13
+cnn.add(layers.Dense(4, activation='softmax')) # 分类输出层 行14
+cnn.compile(loss='categorical_crossentropy', # 损失函数 行15
+            optimizer='RMSprop', # 优化器
+            metrics=['acc']) # 评估指标
+```
+
+神经网络中最主要的结构就是“层”，各种各样不同的层像拼积木一样组合起来，就形成了各种各样的神经网络。而对于我们的卷积神经网络 CNN 来说，其中最重要的就是 Conv2D 这个卷积层，它是我们这个神经网络的主要功能层，决定了我们所构建的神经网络是一个卷积神经网络。
+
+```py
+from IPython.display import SVG # 实现神经网络结构的图形化显示
+from tensorflow.keras.utils import model_to_dot # 导入model_to_dot工具
+SVG(model_to_dot(cnn).create(prog='dot', format='svg')) # 绘图
+```
+
+![神经网络结构的图形化](./images/cnn-display.png)
+
+1. 首先，通过 cnn = models.Sequential() 创建一个序贯模型（代码行 3）。序贯模型也是最简单的模型，就是像盖楼一样，一层一层往上堆叠着搭新的层。
+2. 然后，通过 cnn.add(layers.Conv2D(32, (3, 3), activation=‘relu’, input_shape=(150, 150, 3))) 语句（代码行 4）在模型中加入了神经网络的输入层。输入层需要通过 input_shape=(150, 150, 3) 指定输入的特征数据集的形状。如果形状不对，等会儿拟合时就会报错。
+3. 从代码行 5 开始直到行 13，为神经网络添加了各种各样的中间层（也叫隐层），这些层如何添加、配置，有足够的自由去尝试。少可以两三层，多可以几万层。
+4. cnn.add(layers.Conv2D(64, (3, 3), activation=‘relu’))（代码行 6）这个语句是用来添加输入层之后的中间卷积层的，这里面的 64 是输出空间的维度，也就是卷积过程中输出滤波器的数量，而 (3, 3) 则指定 2D 卷积窗口的高度和宽度。cnn.add(layers.MaxPooling2D((2, 2)))（代码行 7）这个语句是用来添加池化层，(2, 2) 也是指定 2D 卷积窗口的高度和宽度。
+5. 以此类推，卷积层 + 池化层的组合会持续出现，然后再输出层之前需要有展品层（代码行 12）和全连接层（代码行 13）。
+6. 代码行 14，cnn.add(layers.Dense(10, activation=‘softmax’)) 这一行叫做输出层，其中 activation='softmax’这个参数，就用于多分类输出。
+
+怎么看一个神经网络是普通神经网络 DNN，还是 CNN 或者 RNN 呢？这其中的关键就是看输入层和中间层主要是什么类型。DNN 的输入层和中间层主要是 Dense 层，CNN 的输入层和中间层主要是 Conv1D、Conv2D 或者 Conv3D，RNN 的输入层和中间层主要是 SimpleRNN 或者 GRU 或者 LSTM 层。
+
+### 5.3. 模型的训练和拟合
+
+fit 语句来进行训练：
+
+```py
+# 训练网络并把训练过程信息存入history对象
+history = cnn.fit(X_train,y_train, #训练数据
+                  epochs=10, #训练轮次（梯度下降）
+                  validation_split=0.2) #训练的同时进行验证
+```
+
+validation_split，它可以在训练的同时，自动把训练集部分拆出来，进行验证，在每一个训练轮次中，求出该轮次在训练集和验证集上面的损失和预测准确率。
+
+```py
+Train on 2089 samples, validate on 523 samples
+Epoch 1/5
+2089/2089 [==============================] - 86s 41ms/step - loss: 1.3523 - acc: 0.3978 - val_loss: 1.0567 - val_acc: 0.5411
+Epoch 2/5
+2089/2089 [==============================] - 85s 41ms/step - loss: 1.0167 - acc: 0.5692 - val_loss: 1.0336 - val_acc: 0.5526
+Epoch 3/5
+2089/2089 [==============================] - 85s 41ms/step - loss: 0.8912 - acc: 0.6343 - val_loss: 0.9183 - val_acc: 0.6310
+Epoch 4/5
+2089/2089 [==============================] - 84s 40ms/step - loss: 0.8295 - acc: 0.6596 - val_loss: 0.9289 - val_acc: 0.6138
+Epoch 5/5
+2089/2089 [==============================] - 85s 41ms/step - loss: 0.7228 - acc: 0.7056 - val_loss: 1.0086 - val_acc: 0.5736
+... ...
+```
+
+这个输出的信息包括了训练的轮次（梯度下降的次数）、每轮训练的时长、每轮训练过程中的平均损失，以及分类的准确度。这里的每一个轮次，其实就是神经网络对其中的每一个神经元自动调参、通过梯度下降进行最优化的过程。
+
+
+### 5.4. 模型性能的评估
+
+把每轮的损失和准确率做一个可视化，绘制出损失曲线，来展示模型在训练集上评估分数和损失的变化过程。
+
+```py
+def show_history(history): # 显示训练过程中的学习曲线
+    loss = history.history['loss'] #训练损失
+    val_loss = history.history['val_loss'] #验证损失
+    epochs = range(1, len(loss) + 1) #训练轮次
+    plt.figure(figsize=(12,4)) # 图片大小
+    plt.subplot(1, 2, 1) #子图1
+    plt.plot(epochs, loss, 'bo', label='Training loss') #训练损失
+    plt.plot(epochs, val_loss, 'b', label='Validation loss') #验证损失
+    plt.title('Training and validation loss') #图题
+    plt.xlabel('Epochs') #X轴文字
+    plt.ylabel('Loss') #Y轴文字
+    plt.legend() #图例
+    acc = history.history['acc'] #训练准确率
+    val_acc = history.history['val_acc'] #验证准确率
+    plt.subplot(1, 2, 2) #子图2
+    plt.plot(epochs, acc, 'bo', label='Training acc') #训练准确率
+    plt.plot(epochs, val_acc, 'b', label='Validation acc') #验证准确率
+    plt.title('Training and validation accuracy') #图题
+    plt.xlabel('Epochs') #X轴文字
+    plt.ylabel('Accuracy') #Y轴文字
+    plt.legend() #图例
+    plt.show() #绘图
+show_history(history) # 调用这个函数
+```
+
+![plot](./images/cnn-plot.png)
+
+训练集的损失呈现下降趋势，但是测试集上的损失则呈现跳跃，这说明这个神经网络性能不是很稳定，似乎有过拟合的现象.
+
+在测试集上进行分类结果的评分。
+
+```py
+result = cnn.evaluate(X_test, y_test) #评估测试集上的准确率
+print('CNN的测试准确率为',"{0:.2f}%".format(result[1]))
+```
+
+输入如下：
+
+```py
+653/653 [==============================] - 10s 15ms/step
+CNN的测试准确率为 0.69%
+```
+
+可以应用模型的 predict 属性把 X 特征集传入，进行花朵图片的分类。
+
+```py
+prediction = cnn.predict(X_test) #预测测试集的图片分类
+prediction[0] #第一张图片的分类
+```
+
+输出如下：
+
+```py
+array([0.0030566 , 0.13018326, 0.00846946, 0.8582906 ], dtype=float32)
+```
+
+此时输出的是分类概率。上面的输出结果表示，第一类花 Daisy（雏菊）的概率为 0.03，第二类花 Rose（玫瑰）的概率为 0.13，第三类花 Sunflower（向日葵）的概率为 0.008，第四类花 Tulip（郁金香）的概率为 0.858。
+
+选出最大的那个概率，并把它当作 CNN 的分类结果：
+
+```py
+print('第一张测试图片的分类结果为:', np.argmax(prediction[0]))
+```
+
+输出如下：
+
+```py
+第一张测试图片的分类结果为: 3
+```
+
+## 6. 深度学习-RNN
+
+案例：App 从 2019 年上线以来，App 的日激活数稳步增长。运营团队已经拉出两年以来每天的具体激活数字，任务是，建立起一个能够预测未来激活率走势的机器学习模型。
+
+### 6.1. 收集数据和预处理
+
+> 1. 数据可视化
+
+用 plot 这个 API，绘制出激活数的历史走势图，其中时间为横坐标，App 激活数为纵坐标的图像：
+
+```py
+import matplotlib.pyplot as plt #导入matplotlib.pyplot
+plt.style.use('fivethirtyeight') #设定绘图风格
+df_app["Activation"].plot(figsize=(12,4),legend=True) #绘制激活数
+plt.title('App Activation Count') #图题
+plt.show() #绘图
+```
+
+> 2. 数据清洗
+
+看看有没有 NaN 值：
+
+```py
+df_app.isna().sum() #有NaN吗？
+```
+
+对于 App 激活数，只想保证数据集里全部都是正值，所以，可以用下面的语句查看有没有负值和零值：
+
+```py
+(df_app.Activation < 0).values.any() #有负值吗？
+```
+
+输出如下：
+
+```py
+False
+```
+
+说明整个数据集没有一个 0 值或者负值。那我们也不需要做任何的清洗工作了。接下来，我们进入直接训练集和测试集的拆分。
+
+> 3. 拆分训练集和测试集
+
+假设以 2020 年 10 月 1 日为界，只给模型读入 2020 年 10 月 1 日之前的数据，之后的数据留作对模型的测试。
+
+```py
+# 按照2020年10月1日为界拆分数据集
+Train = df_app[:'2020-09-30'].iloc[:,0:1].values #训练集
+Test = df_app['2020-10-01':].iloc[:,0:1].values #测试集
+```
+
+- df_app[:‘2020-09-30’]代表 10 月 1 日之前的数据，用于训练模型；df_app[‘2020-10-01’:]代表 10 月 1 日之后，用于对训练好的模型进行测试。
+- 代码中的 iloc 属性，是 Pandas 中对 DataFrame 对象以行和列位置为索引抽取数据。其中的第一个参数代表行索引，指定“:”就表示抽取所有行；而第二个参数中的“0:1”代表要抽取的列索引的位置为第 2 列，也就是“激活数”这一列。
+- 最后，.values 这个属性就把 Pandas 对象转换成了 Numpy 数组
+
+```py
+Train #显示训练集对象
+```
+
+输出如下：
+
+```py
+array([[419],
+       [432],
+       ...
+       [872],
+       [875]])
+```
+
+对于神经网络来说，输入的张量形状非常重要,用 NumPy 中的.shape 属性查看当前数据对象的形状。
+
+```py
+print('训练集的形状是：', Train.shape)
+print('测试集的形状是：', Test.shape)
+
+训练集的形状是： (639, 1)
+测试集的形状是： (117, 1)
+```
+
+训练集是 639 行的一维数组，测试集是 117 行的一维数组，但它们都是二阶张量。
+
+> 4. 特征工程
+
+神经网络非常不喜欢数值跨度大的数据，所以，我们对训练特征数据集进行归一化缩放。
+
+```py
+from sklearn.preprocessing import MinMaxScaler #导入归一化缩放器
+Scaler = MinMaxScaler(feature_range=(0,1)) #创建缩放器
+Train = Scaler.fit_transform(Train) #拟合缩放器并对训练集进行归一化
+```
+
+> 5. 构建特征集和标签集
+
+这个数据集的标签就是 App 激活数，特征是时序数据。如果要预测今天的 App 下载数量，那时序数据特征的典型构造方法就是，把之前 30 天或者 60 天的 App 下载数量作为特征信息被输入机器学习模型。
+
+创建了一个具有 60 个时间步长（所谓步长，就是时间相关的历史特征数据点）和 1 个输出的数据结构。
+
+```py
+# 创建具有 60 个时间步长和 1 个输出的数据结构 - 训练集
+X_train = [] #初始化
+y_train = [] #初始化
+for i in range(60,Train.size): 
+    X_train.append(Train[i-60:i,0]) #构建特征
+    y_train.append(Train[i,0]) #构建标签
+X_train, y_train = np.array(X_train), np.array(y_train) #转换为NumPy数组
+X_train = np.reshape(X_train, (X_train.shape[0],X_train.shape[1],1)) #转换成神经网络所需的张量形状
+```
+
+显示一下目前 X_train 集的形状：
+
+```py
+X_train.shape #X_train的形状
+
+
+X_train的形状是： (579, 60, 1)
+```
+
+是一个三阶张量，每一阶上面的维度是 579（579 行数据）、60（每一个当日激活数往前 60 天的激活数）和 1（每一个时间点只有激活数一个特征）。
+
+同样的方法构建测试集：
+
+```py
+TrainTest = df_app["Activation"][:] #整体数据
+inputs = TrainTest[len(TrainTest)-len(Test) - 60:].values #Test加上前60个时间步
+inputs = inputs.reshape(-1,1) #转换形状
+inputs  = Scaler.transform(inputs) #归一化
+# 创建具有 60 个时间步长和 1 个输出的数据结构 - 测试集
+X_test = [] #初始化
+y_test = [] #初始化
+for i in range(60,inputs.size): 
+    X_test.append(inputs[i-60:i,0]) #构建特征
+    y_test.append(inputs[i,0]) #构建标签
+X_test = np.array(X_test) #转换为NumPy数组
+X_test = np.reshape(X_test, (X_test.shape[0],X_test.shape[1],1)) #转换成神经网络所需的张量形状
+```
+
+### 6.2. 选择算法并建立模型
+
+RNN 模型: 循环神经网络是神经网络的一种，和其它类型的神经网络相比，最大的不同是它建立了自身的记忆机制，增加了时间相关的状态信息在各层神经元间的循环传递机制。即一个序列的当前输出与前面各个神经元的输出也是有关的，即隐藏层之间不再是不相连的，而是有连接的。这就让循环神经网络能够更加自由和动态地获取输入的信息，而不受到定长输入空间的限制。
+
+![rnn](./images/rnn.png)
+
+因此，向循环神经网络中输入的数据都有这样的特点， 数据集中不仅要包含当前的特征值，还要包括前一刻或者前几刻的状态。
+
+要预测的内容，和之前一段时间的特征值密切相关，就适合选择循环神经网络来建立模型进行处理。
+
+在 Kares 中，主要有三种循环神经网络层可以搭建循环神经网络，分别是 Simple RNN、LSTM 和 GRU.
+
+Simple RNN，顾名思义，就是最简单的循环神经网络结构，它的结构如下图所示。这个结构比较简单，只是在输入特征 X 的基础之上加入了 ht​ 这个时间状态信息，也就是“记忆”功能。
+
+![rnn_Simple_RNN](./images/rnn_Simple_RNN.png)
+
+不过这种结构有一个缺陷，就是会出现“短期记忆的问题”。神经网络在训练的过程中，参数是从后面的层向前面的层反向传播的，同时还会在每一步计算梯度，做梯度下降，用于更新神经网络中的权重。如果前一层对当前层的影响很小，那么梯度值就会很小，反之亦然。如果前一层的梯度很小，那么当前层的梯度会更小。这就使得梯度在我们反向传播时呈指数缩小。而较小的梯度意味着它不会影响权重更新。所以，对于 Simple RNN 来说，较早期输入的信息对预测判断的影响会比较小，这就是“短期记忆问题”。对于这个项目的数据集来说，时间跨度比较大，Simple RNN 是很难捕捉到这种长期的时间关联的。
+
+LSTM（Long Short-Term Memory，长短期记忆网络）可以很好地解决这个问题。LSTM 的神经元由一个遗忘门、一个输入门、一个输出门和一个记忆细胞组成，来记录额外的信息。记忆细胞负责记住时间相关的信息，而三个门负责调节进出神经元的信息流。在这个过程中，每个记忆单元可获得连续的梯度流，能学习数百个时间步长的序列而误差保持原值，从而解决梯度消失问题。
+
+![rnn_LSTM](./images/rnn_LSTM.png)
+
+GRU 也是为了解决 Simple RNN 的短期记忆问题，它的复杂性介于 Simple RNN 和 LSTM 之间，在结构上要比 LSTM 简单一些。
+
+![rnn_GRU](./images/rnn_GRU.png)
+
+对于预测 App 激活数走势这个项目来说，如果仅从性能角度考虑，那 LSTM 是最理想的，就构建一个以 LSTM 为主要层结构的循环神经网络：
+
+```py
+from tensorflow.keras.models import Sequential #导入序贯模型
+from tensorflow.keras.layers import Dense, LSTM #导入全连接层和LSTM层
+# LSTM网络架构
+RNN_LSTM = Sequential() #序贯模型
+RNN_LSTM.add(LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1],1))) #输入层LSTM,return_sequences返回输出序列
+RNN_LSTM.add(LSTM(units=50, return_sequences=True)) #中间1层LSTM，return_sequences返回输出序列
+RNN_LSTM.add(LSTM(units=50, return_sequences=True)) #中间2层LSTM，return_sequences返回输出序列
+RNN_LSTM.add(LSTM(units=50)) #中间3层LSTM
+RNN_LSTM.add(Dense(units=1)) #输出层Dense
+# 编译网络
+RNN_LSTM.compile(loss='mean_squared_error', #损失函数
+                 optimizer='rmsprop', #优化器
+                 metrics=['mae']) #评估指标
+RNN_LSTM.summary() #输出神经网络结构信息
+```
+
+### 6.3. 训练并评估模型
+
+训练 50 次，并在训练的同时进行 80/20 比例的数据验证：
+
+```py
+history = regressor.fit(X_train, y_train, epochs=50, validation_split=0.2) # 训练并保存训练历史信息
+```
+
+### 6.4. 利用模型进行预测
+
+在预测结束之后，需要用 inverse_transform 对预测值做反归一化。否则，激活数将是一个 0-1 之间的值。
+
+```py
+predicted_stock_price = regressor.predict(X_test) #预测
+predicted_stock_price = sc.inverse_transform(predicted_stock_price) #反归一化
+plot_predictions(test_set,predicted_stock_price) #绘图
+```
+
+![rnn_app_predict](./images/rnn_app_predict.png)
+
+## 7. 提升神经网络预测准确率
+
+### 7.1. 数据方面的考量：图像数据增广
+
+数据增广 (data augmentation)，也叫数据增强，它能通过已有的图片，增加数据量，从而提高卷积网络图像处理问题的性能，增强模型的泛化能力。  
+
+对原始的图像进行数据增广的方式有很多，比如水平翻转，还有一定程度的位移、颠倒、倾斜、裁剪、颜色抖动（color jittering）、平移、虚化或者增加噪声等，这些都比较常用。此外，还可以尝试多种操作的组合， 比如同时做旋转和随机尺度变换，还可以提升所有像素在 HSV 颜色空间中的饱和度和明度，以及在色调通道对每张图片的所有像素增加一个 -0.1~0.1 之间的值等。
+
+![tune_img](./images/tune_img.png)
+
+这样一来，无论是图片的数目，还是多样性，模型在训练时都能够观察到数据的更多内容，从而拥有更好的准确率和泛化能力。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
