@@ -34,6 +34,13 @@
     - [6.4. 利用模型进行预测](#64-利用模型进行预测)
   - [7. 提升神经网络预测准确率](#7-提升神经网络预测准确率)
     - [7.1. 数据方面的考量：图像数据增广](#71-数据方面的考量图像数据增广)
+    - [7.2. 训练时的考量：防止网络过拟合](#72-训练时的考量防止网络过拟合)
+    - [7.3. 调参时的考量：更新优化器并设置学习速率](#73-调参时的考量更新优化器并设置学习速率)
+  - [8. 留存分析：哪些因素会影响用户的留存率](#8-留存分析哪些因素会影响用户的留存率)
+    - [8.1. 数据的预处理](#81-数据的预处理)
+    - [8.2. Kaplan-Meier 生存模型：显示整体留存曲线](#82-kaplan-meier-生存模型显示整体留存曲线)
+    - [8.3. Cox 危害系数模型：预测用户留存概率](#83-cox-危害系数模型预测用户留存概率)
+    - [8.4. Cox 危害系数模型：分析影响留存的因子](#84-cox-危害系数模型分析影响留存的因子)
 
 ## 1. 漏斗图
 
@@ -60,7 +67,7 @@ fig.show() #显示漏斗图
 
 > 第 1 步 定义问题  
 
-> 例子：  
+例子：  
 因为微信公众号阅读量超过 10 万之后，就不能显示它的具体阅读量了。所以针对这个问题，我们项目的目标就是，建立一个机器学习模型，根据点赞数和转发数等指标，估计一篇文章能实现多大的浏览量。因为要估计浏览量，所以在这个数据集中：点赞数、转发数、热度指数、文章评级，这 4 个字段都是特征，浏览量就是标签。  
 
 > 第 2 步 收集数据和预处理  
@@ -1685,24 +1692,356 @@ plot_predictions(test_set,predicted_stock_price) #绘图
 
 这样一来，无论是图片的数目，还是多样性，模型在训练时都能够观察到数据的更多内容，从而拥有更好的准确率和泛化能力。
 
+在 Keras 中，可以用 Image Data Generator 工具来定义一个数据增广器
+
+```py
+# 定义一个数据增强器，并设定各种增强选项
+from tensorflow.keras.preprocessing.image import ImageDataGenerator #数据增强器
+augs_gen = ImageDataGenerator( #各种增强参数，具体说明可参见Keras文档
+           featurewise_center=False,
+           samplewise_center=False,         
+           featurewise_std_normalization=False,          
+           samplewise_std_normalization=False,  
+           zca_whitening=False, 
+           rotation_range=10,  
+           zoom_range = 0.1, 
+           width_shift_range=0.2,  
+           height_shift_range=0.2,
+           horizontal_flip=True,  
+           vertical_flip=False) 
+augs_gen.fit(X_train) # 针对训练集拟合数据增强器
+```
+
+用这个数据增广器对卷积神经网络模型 CNN 进行优化，CNN 网络模型的结构和编译参数都和原来的模型一样，唯一的区别是在训练时，需要通过 augs_gen.flow 动态生成被增强后的训练集。
+
+```py
+history = cnn.fit( # 拟合   
+    augs_gen.flow(X_train,y_train,batch_size=16), # 增强后的训练集
+    epochs = 30,  # 指定轮次
+    verbose = 1) # 指定是否显示训练过程中的信息
+```
+
+增广之前：
+
+```py
+result = cnn.evaluate(X_test, y_test) #评估测试集上的准确率
+print('数据增强之前CNN的测试准确率为',"{0:.2f}%".format(result[1]*100))
+
+# 21/21 [==============================] - 0s 7ms/step - loss: 4.4355 - acc: 0.6003
+# 数据增强之前CNN的测试准确率为 60.03%
+```
+
+增广之后：
+
+```py
+# 21/21 [==============================] - 0s 8ms/step - loss: 0.6121 - acc: 0.7856
+# 数据增强之后CNN的测试准确率为 78.56%
+```
+
+### 7.2. 训练时的考量：防止网络过拟合
+
+神经网络在训练数据集上的损失在一直变小，直到趋近于 0，达到非常高的拟合准确度。然而，验证集上的损失并不是在稳定地减小，一开始是跟着训练集的损失的减小而逐渐变小，到后来，又呈现出爬升以及大小弹跳的状态。这就意味着过拟合已经出现了，这个过程就像下面这张图显示一样：
+
+![过拟合](./images/tune_overfit.png)
+
+对于小数据而言，深度神经网络由于参数数量太多，容易出现过拟合的风险。而对于神经网络这么复杂的模型来说，要避免过拟合还挺难做到的。
+
+杰弗里·欣顿（Geoffrey Hinton）和他的学生发现了一种解决方式：他们把一种叫做 Dropout 的层添加到了神经网络中，将该层的一部分神经元的输出特征随机丢掉（设为 0），相当于随机消灭一部分神经元：
+
+![Dropout](./images/tune_dropout.png)
+
+对于大型的深层神经网络来说，添加 Dropout 层已经是一个标准配置了。
+
+```py
+from tensorflow.keras.models import Sequential #导入序贯模型
+from tensorflow.keras.layers import Dense, LSTM, Dropout #导入全连接层,LSTM层和Dropout层
+from tensorflow.keras.optimizers import Adam
+# LSTM网络架构
+RNN_LSTM = Sequential() #序贯模型
+RNN_LSTM.add(LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1],1))) #输入层LSTM,return_sequences返回输出序列
+RNN_LSTM.add(Dropout(0.2)) #Dropout层减少过拟合
+RNN_LSTM.add(LSTM(units=50, return_sequences=True)) #中间层LSTM，return_sequences返回输出序列
+RNN_LSTM.add(Dropout(0.2)) #Dropout层减少过拟合
+RNN_LSTM.add(LSTM(units=50, return_sequences=True)) #中间层LSTM，return_sequences返回输出序列
+RNN_LSTM.add(Dropout(0.2)) #Dropout层减少过拟合
+RNN_LSTM.add(LSTM(units=50)) #中间层LSTM
+RNN_LSTM.add(Dropout(0.2)) #Dropout层减少过拟合
+RNN_LSTM.add(Dense(units=1)) #输出层Dense
+# 编译网络
+RNN_LSTM.compile(loss='mse', #损失函数
+             optimizer='rmsprop', #优化器
+             metrics=['mae']) #评估指标
+RNN_LSTM.summary() #输出神经网络结构信息
+```
+
+Dropout(0.2) 层中的 0.2，也就是在 Dropout 层中会被随机丢弃掉的神经元的比例，通常设为 0.2 ～ 0.5。注意，Dropout 只是对训练集起作用，在测试时没有神经元被丢掉。
+
+添加了 Dropout 层之后，RNN 网络训练过程的损失曲线：
+
+![损失曲线](./images/tune_loss.png)
+
+添加了 Dropout 层之后，损失曲线显得更平滑了，尽管仍然有震荡的现象，但是震荡的幅度呈现逐渐减小的趋势，而且验证集损失也随着轮次的增多而减小。
+
+对测试集预测后显示预测曲线如下：
+
+![预测曲线](./images/tune_pre.png)
+
+计算一下调优前后的均方误差，并进行比较：
+
+```py
+print("调优前MSE损失值 {}.".format(mean_squared_error(y_test, y_pred)))
+print("添加Dropout层之后的MSE损失值 {}.".format(mean_squared_error(test, y_pred_dropout)))
+
+# 调优前MSE损失值 0.06139160691187054.
+# 添加Dropout层后得MSE损失值 0.034998731473164235.
+```
+
+比起没有添加 Dropout 层的均方误差，加入 Dropout 层后的模型均方误差从 0.06 减小到了 0.03。
+
+增加 Dropout 层并不是唯一可以在模型创建过程中可以调节的内容，还可以通过增加或者减少模型的层数、通过改变层的类型（比如用 GRU 或者 SimpleRNN 来替换 LSTM）来找到对于当前数据集最为适配的网络结构，从而减小误差，优化模型的性能。不过，这个过程并没有固定原则，只能反复去尝试。
+
+### 7.3. 调参时的考量：更新优化器并设置学习速率
+
+和线性回归函数一样，神经网络也是通过梯度下降来实现参数的最优化，不过，有一点不同的是：线性回归函数仅存在一个全局最低点，而神经网络因为函数十分复杂，会出现很多的局部最低点，在每一个局部最低点，导数的值都为 0。没有求导后的正负，梯度下降也就没有任何方向感，所以这时候，神经网络的参数也不知道应该往哪里“走”，因此，神经网络模型并不能够总是得到最佳的训练结果。
+
+![最低点](./images/tune-bottom.png)
+
+![最低点](./images/tune-bottoms.png)
 
 
+基于这个问题，人们发明了一系列的神经网络优化器，这些优化器可以在编译神经网络时作为参数传入神经网络，解决局部最低点的问题。
 
+以 SGD 优化器为例。SGD 优化器利用了动量的原理，也就是在梯度下降时，借助惯性越过当前的局部最低点，来寻找网络中损失更小的地方。
 
+可以想象一个小球从山坡上滑下来，在下坡的过程中，遇到一个局部最低点，如果小球此时的速度很慢，就会卡在这个局部最低点上。这时候，小球无论是向左移动还是向右移动，都很难越过去，对于模型来说，无论是向左还是向右，都会导致损失值增大。
 
+给这个 SGD 优化器传入一个叫“学习速率”的参数，来调节小球的快慢（也就是梯度下降的快慢），可以把“学习速率”直观理解为“加速度”。如果 SGD 优化器的学习速率很小，那小球就冲不出这个局部最低点，参数就无法继续优化；如果学习速率很大，它就可能帮小球成功越过局部最低点，进入下一个下坡轨道，去寻找更优的权重参数。
 
+除了 SGD 优化器之外，还有许多其他优化器，比如 Adagrad，它也是一种基于梯度的优化方法，叫作自适应梯度（adaptive gradient），也就是不同的参数可以拥有不同的学习速率。
 
+Adagrad 能根据前几轮迭代时的历史梯度值来调整学习速率。对于数据集中的稀疏特征来说，Adagrad 会使用较大的学习速率，此时梯度下降步幅将较大。这里的稀疏特征，意思就是指类别非常多，但是每个类别的特征数量很少，一个很典型的例子就是对文本数据的词向量编码。
 
+对于非稀疏特征，Adagrad 则使用较小的值更新学习速率。因此，这个优化算法适合处理含稀疏特征的数据集，比如，在文本处理的词向量（word embedding）训练过程中，对频繁出现的单词赋予较小的更新，对不经常出现的单词则赋予较大的更新。
 
+RMSprop 优化器，它解决的是 Adagrad 中学习速率有时会急剧下降的问题。RMSProp 抑制学习速率下降的方法不同于普通的动量，它是采用窗口滑动加权平均值，来计算二阶动量。同时，它还可以保存 Adagrad 中每个参数自适应不同的学习速率。
 
+另一种常见的优化器叫 Adam，它是一种基于一阶和二阶矩的自适应估计的随机梯度下降方法。这种优化器计算效率高，内存需求小，是前面各种优化器的集大成者，并且非常适合数据和参数都较大的问题。
 
+> 在构建神经网络的过程中，怎么设定这些优化器呢？答案是 compile 方法。当搭建好神经网络的架构后，需要通过这个方法进行编译。
 
+```py
+cnn.compile(loss='categorical_crossentropy', # 损失函数
+            optimizer='RMSprop'), # 更新优化器并设定学习速率
+            metrics=['acc']) # 评估指标
 
+RNN_LSTM.compile(loss='mse', #损失函数
+                 optimizer='rmsprop', #优化器
+                 metrics=['mae']) #评估指标
+```
 
+这里有 3 个可以调节的参数，分别是 loss、optimizer 和 metrics。其中，optimizer 就是设置优化器，loss 是用来指定损失函数的。对于多元分类问题，一般用 categorical_crossentropy 指定损失函数；对于二元分类问题，一般是用 binary_crossentropy；如果是回归问题，可以选择 mse，也就是均方误差。
 
+评估指标 metrics，对于分类问题，可以使用 acc，也就是分类准确率，作为评估指标；对于回归问题，则可以选择使用 mae，即绝对平均绝对误差。
 
+optimizer 是和性能优化最相关的参数。
 
+## 8. 留存分析：哪些因素会影响用户的留存率
 
+什么是用户留存？留存就是让老用户一直使用你的产品。
+
+### 8.1. 数据的预处理
+
+> 1. 数据导入
+
+```py
+import numpy as np #导入NumPy
+import pandas as pd #导入Pandas
+df_member = pd.read_csv('data.csv') #载入数据集
+df_member.head() #显示数据头几行
+```
+
+> 2. 数据清洗
+
+```py
+df_member.describe() # 显示数据集数值字段概率
+```
+
+![lifelines_table](./images/lifelines_table.png)
+
+这个 describe 方法把用户码当成了数值性数据。此外，这个表格中没有“总消费”这个字段。推测“总消费”这个字段有点问题，它有可能看起来是数值，但是实际的格式是字符串。
+
+is_numeric_dtype 方法验证一下
+
+```py
+from pandas.api.types import is_numeric_dtype #导入is_numeric_dtype工具
+is_numeric_dtype(df_member['总消费']) #是否为数值字段？
+
+# False
+```
+
+用 to_numeric 这个 API 对它做个转换：
+
+```py
+df_member['总消费'] = pd.to_numeric(df_member['总消费'], errors='coerce') #把总消费字段转换成数值字段
+df_member['总消费'].fillna(0, inplace=True) #补充0值
+```
+
+> 3. 数据可视化
+
+通过饼图来看一看性别、会费支付方式、会员卡类型、已停付会费这四个字段的分布比例。这些分布情况，尤其是留存与流失的会员占比，对于确定当前运营的重点关注点很有指导意义。
+
+```py
+import matplotlib.pyplot as plt #导入绘图工具
+plt.figure(figsize=(10,8)) #图片大小
+plt.subplot(2, 2, 1) #子图1
+ax = df_member.groupby('性别').count()['用户码'].plot.pie(autopct='%1.0f%%') #饼图1
+plt.subplot(2, 2, 2) #子图2
+ax = df_member.groupby('会费支付方式').count()['用户码'].plot.pie(autopct='%1.0f%%') #饼图2
+plt.subplot(2, 2, 3) #子图3
+ax = df_member.groupby('会员卡类型').count()['用户码'].plot.pie(autopct='%1.0f%%') #饼图3
+plt.subplot(2, 2, 4) #子图4
+ax = df_member.groupby('已停付会费').count()['用户码'].plot.pie(autopct='%1.0f%%') #饼图4
+plt.show() #显示
+```
+
+![lifelines_pie](./images/lifelines_pie.png)
+
+> 4. 特征工程
+
+![lifelines_data](./images/lifelines_data.png)
+
+在这个数据集中，最后一列“已停付会费”字段显示有一些用户已流失。目前这个字段的值的类型是汉字，需要转换为 0、1 值才能被模型读入。同理，对“性别”字段也做类似处理。
+
+```py
+# 把汉字转换成0、1值
+df_member['已停付会费'].replace(to_replace='是', value=1, inplace=True)
+df_member['已停付会费'].replace(to_replace='否',  value=0, inplace=True)
+df_member['性别'].replace(to_replace='女', value=0, inplace=True)
+df_member['性别'].replace(to_replace='男', value=1, inplace=True)
+```
+
+对于各种会员套餐类型，把汉字“是”、“否”转换成易于机器读取的布尔类型变量。
+
+```py
+# 其它的是、否字段转换成布尔型数据
+binary_features = ['玫瑰套餐', '紫罗兰套餐', '郁金香套餐', 
+                   '百合套餐', '康乃馨套餐', '胡姬花套餐', 
+                   '生日套餐','情人节套餐']
+for field in binary_features:
+    df_member[field] = df_member[field] == '是'
+```
+
+![lifelines_data2](./images/lifelines_data2.png)
+
+### 8.2. Kaplan-Meier 生存模型：显示整体留存曲线
+
+在 lifelines 工具包中有一个 Kaplan-Meier 生存模型，它能显示整体的用户留存曲线，通过绘制不同群体的留存曲线，就可以观察到数据集中的各个特征对于留存的影响大小。
+
+观察一下哪些指标与“留存时间”的关系最密切：分别是最后一个字段‘已停付会费’，以及第三个字段‘入会月数’”。有了这两个指标，就可以计算出这些用户的生命周期长度，也就是他们大概在入会多长时间后会流失了。
+
+要安装 lifelines 工具包：
+
+```text
+pip install lifelines
+```
+
+导入 lifelines，用其中的 Kaplan-Meier 生存模型来查看普通用户随时间而变化的留存率。把“入会月数” 和“已停付会费”两个字段输入该模型，这个模型可以拟合用户数据，并以绘制出含置信区间的用户留存曲线。
+
+```py
+import lifelines #导入生存分析工具包
+kmf = lifelines.KaplanMeierFitter() #创建KMF模型
+kmf.fit(df_member['入会月数'], #拟合易速鲜花会员流失数据
+        event_observed=df_member['已停付会费'], 
+        label='会员预期留存线')
+fig, ax = plt.subplots(figsize=(10,6)) #画布
+kmf.plot(ax=ax) #绘图
+ax.set_title('Kaplan-Meier留存曲线-易速鲜花会员们') #图题
+ax.set_xlabel('入会月数') #X轴标签
+ax.set_ylabel('留存率(%)') #Y轴标签
+plt.show() #显示图片
+```
+
+![lifelines_curve](./images/lifelines_curve.png)
+
+图中的曲线有蓝色的阴影，这个阴影就是置信区间。考虑到图中留存率的蓝色阴影所覆盖的范围，可以说入会月数为 20 个月之后，有 95% 的可能，用户留存的概率在 78%-82% 之间。而在第 70 个月之后，也就是注册为会员 5 年之后，留存率有 95% 的可能在 58％-64% 这个概率区间。
+
+上面的留存曲线并不能提供更多的用户特定分组的留存情况的对比信息，还需要从用户特征入手，分组绘制留存曲线，然后在同一张图中显示，这样可以挖掘出更多影响用户留存率的因素。
+
+根据用户特征来绘制不同的细分留存曲线。先创建一个函数，让这个函数根据用户具体特征，也就是生存分析中的因子，来专门绘制留存曲线：
+
+```py
+def life_by_cat(feature, t='入会月数', event='已停付会费', df=df_member, ax=None): #定义分类留存曲线函数
+    for cat in df[feature].unique(): #遍历类别
+        idx = df[feature] == cat #当前类别
+        kmf = lifelines.KaplanMeierFitter() #创建KaplanMeier模型
+        kmf.fit(df[idx][t], event_observed=df[idx][event], label=cat) #拟合模型
+        kmf.plot(ax=ax, label=cat) #绘图
+```
+
+先看看会员费缴纳方式对留存的影响，只需要把这个字段传输进刚才定义的 life_by_cat 函数即可：
+
+```py
+fig_pmt, ax_pmt = plt.subplots(figsize=(10,6)) #画布
+life_by_cat(feature='会费支付方式', ax=ax_pmt) #调用函数
+ax_pmt.set_title('会费支付方式对留存的影响') #图题
+ax_pmt.set_xlabel('入会月数') #X轴标签
+ax_pmt.set_ylabel('留存率(%)') #Y轴标签
+plt.show() #显示图片
+```
+
+![lifelines_curves](./images/lifelines_curves.png)
+
+可以看到，如果选择就餐时付会员费，那么流失率将大幅上升。有理由怀疑，如果要客户下次就餐时支付会员费，那会使很多用户干脆不再前来就餐。另一个对留存有负面影响的支付方式是手工转账支付会员费。而最佳的会员费支付方案是说服用户采用微信自动扣款，或通过花呗付款。
+
+### 8.3. Cox 危害系数模型：预测用户留存概率
+
+Cox 危害系数模型（proportional hazards model）会分析每一个字段对于生存的影响，然后预测出某一个人大概在多久之后会“死亡”，并给出随时间延长，生存的概率值大小，也就是可能性。这个场景中的“死亡”，也就是指会员的流失。
+
+所谓“危害”，可以理解为风险因子，它用来表示分析该特征（或称为因子）是否会增加或减少生存机会，在这里，就是指对应特征对用户流失的影响之大小了。然后对用户个体就可以根据这些字段作为特征进行预测分析，判断未来用户留存或者流失的概率。由于 Cox 危害系数模型可读取的格式是虚拟变量编码，而现在各字段的数据格式是分类编码，在调用该方法之前，还需要进一步做点数据的整理工作，把每个字段都规范成为 Cox 模型可以读取的格式。
+
+> 1. 数据预处理
+
+先通过 Pandas 中的 pd.get_dummies 方法，可以把多类别字段分解为多个二元类别字段，虚拟变量。比如把“会员卡类型”字段，拆分为“会员卡类型 - 年卡”、“会员卡类型 - 月卡”、“会员卡类型 - 双年卡”等。这样一来，输入 Cox 危害系数模型的所有字段都是二元类别字段，都只有 1，0（是，否）两个类别。
+
+```py
+#把分类字段转换为哑编码
+category_features = ['会员卡类型', '会费支付方式'] #要转换的分类的字段
+df_member = pd.get_dummies(df_member, #哑变量的个数会比总类别数少1 
+                           drop_first=True, #这是因为drop_first=True
+                           columns=category_features) #这能够避免回归中的多重共线性问题 
+df_member #显示数据
+```
+
+> 2. 创建并拟合模型
+
+```py
+cph = lifelines.CoxPHFitter() #创建CoxPH模型
+cph.fit(df_member, duration_col='入会月数', #拟合模型
+        event_col='已停付会费', show_progress=False)
+```
+
+> 3. 显示留存概率曲线
+
+```py
+#显示会员生存曲线
+cph.predict_survival_function(df_member.loc[3]).plot()
+```
+
+![lifelines_survival](./images/lifelines_survival.png)
+
+对这个用户来说，初始的留存概率当然是 1.0；在注册会员 10 个月之后，他留存下来的可能性降低到 50% 左右；在注册会员 20 个月之后，他留存的概率减少到了 20% 以下；30 个月之后，这个用户就极有可能会流失，此时的留存概率几乎为 0。
+
+已经能够预测出用户的留存时间长短，但是怎么知道每一个指标（特征字段），对用户流失的影响有多大呢？其实，Cox 危害系数模型仍然能帮到我们。
+
+### 8.4. Cox 危害系数模型：分析影响留存的因子
+
+Cox 危害系数模型的用途不仅限于预测用户留存的概率，它还可以用来挖掘各个特征字段和用户留存（也就是生命周期）的关联程度。
+
+```py
+fig, ax = plt.subplots(figsize=(12,7)) #画布
+ax.set_title('各个特征的留存相关系数') #图题
+cph.plot(ax=ax) #绘图
+```
 
 
 
