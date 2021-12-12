@@ -25,6 +25,18 @@
       - [2.1.1. Tensor 的类型](#211-tensor-的类型)
       - [2.1.4. Tensor 的创建](#214-tensor-的创建)
       - [2.1.5. Tensor 的转换](#215-tensor-的转换)
+    - [2.2. Tensor 的常用操作](#22-tensor-的常用操作)
+      - [2.2.1. 获取形状](#221-获取形状)
+      - [2.2.2. 矩阵转秩 (维度转换）](#222-矩阵转秩-维度转换)
+      - [2.2.3. 形状变换](#223-形状变换)
+      - [2.2.4. 增减维度](#224-增减维度)
+    - [2.3. Tensor 的连接操作](#23-tensor-的连接操作)
+      - [2.3.1. cat](#231-cat)
+      - [2.3.2. stack](#232-stack)
+    - [2.4. Tensor 的切分操作](#24-tensor-的切分操作)
+      - [2.4.1. chunk](#241-chunk)
+      - [2.4.2. split](#242-split)
+      - [2.4.3. unbind](#243-unbind)
 
 ## 1. NumPy
 
@@ -575,14 +587,285 @@ a = torch.tensor(1)
 b = a.item()
 ```
 
+通过 torch.Tensor 将一个数字（或者标量）转换为 Tensor，又通过 item() 函数，将 Tensor 转换为数字（标量），item() 函数的作用就是将 Tensor 转换为一个 python number。
+
+2. list 与 tensor 的转换：
+
+```py
+a = [1, 2, 3]
+b = torch.tensor(a)
+c = b.numpy().tolist()
+
+print(b) # tensor([1, 2, 3])
+print(c) # [1, 2, 3]
+```
+
+还原回来的过程要多一步，先将 Tensor 转为 NumPy 结构，之后再使用 tolist() 函数得到 list。
+
+### 2.2. Tensor 的常用操作
+
+#### 2.2.1. 获取形状
+
+可以使用 shape 或 size 来获取。两者的不同之处在于，shape 是 torch.tensor 的一个属性，而 size() 则是一个 torch.tensor 拥有的方法。
+
+```py
+a = torch.zeros(2, 3, 5)
+print(a.shape) # torch.Size([2, 3, 5])
+print(a.size()) # torch.Size([2, 3, 5])
+print(a.numel()) # 30 = 2*3*5
+```
+
+#### 2.2.2. 矩阵转秩 (维度转换）
+
+permute() 和 transpose() 可以用来实现矩阵的转秩，或者说交换不同维度的数据。比如在调整卷积层的尺寸、修改 channel 的顺序、变换全连接层的大小的时候.
+
+permute 函数可以对任意高维矩阵进行转置.
+
+```py
+x = torch.rand(2, 3, 5)
+print(x.shape)  # torch.Size([2, 3, 5])
+x = x.permute(2, 1, 0)
+print(x.shape)  # torch.Size([5, 3, 2])
+```
+
+x.permute(2,1,0)，2 表示原来第二个维度现在放在了第零个维度；同理 1 表示原来第一个维度仍旧在第一个维度；0 表示原来第 0 个维度放在了现在的第 2 个维度，形状就变成了[5,3,2]
+
+transpose，不同于 permute，它每次只能转换两个维度，或者说交换两个维度的数据。
+
+```py
+x = torch.rand(2, 3, 5)
+x = x.transpose(1, 0)
+print(x.shape)  # torch.Size([3, 2, 5])
+```
+
+#### 2.2.3. 形状变换
+
+在 PyTorch 中有两种常用的改变形状的函数，分别是 view 和 reshape。
+
+```py
+x = torch.randn(4, 4)
+print(x.shape)  # torch.Size([4, 4])
+
+x = x.view(2, 8)
+print(x.shape)  # torch.Size([2, 8])
+
+x = x.permute(1, 0)
+print(x.shape)  # torch.Size([8, 2])
+
+x.view(4, 4)
+
+# Traceback (most recent call last):
+#   File "/Users/eleme/tt/summary/AI-learn/pytorch/2_Tensor/2_shape.py", line 29, in <module>
+#     x.view(4, 4)
+# RuntimeError: view size is not compatible with input tensor's size and stride (at least one dimension spans across two contiguous subspaces). Use .reshape(...) instead.
+
+```
+
+利用 permute，将第 0 和第 1 维度的数据进行了变换，得到了[8, 2]形状的 Tensor，在这个新 Tensor 上进行 view 操作，报错了，因为 view 不能处理内存不连续 Tensor 的结构。  
+
+可以使用另一个函数，reshape：
+
+```py
+x = x.reshape(4, 4)
+print(x.shape)
+x.view(4, 4)  # torch.Size([4, 4])
+```
+
+reshape 相当于进行了两步操作，先把 Tensor 在内存中捋顺了，然后再进行 view 操作。
+
+#### 2.2.4. 增减维度
+
+有时候需要对 Tensor 增加或者删除某些维度，比如删除或者增加图片的几个通道。PyTorch 提供了 squeeze() 和 unsqueeze() 函数解决这个问题。
+
+squeeze(): 如果 dim 指定的维度的值为 1，则将该维度删除，若指定的维度值不为 1，则返回原来的 Tensor。  
+
+```py
+x = torch.rand(2, 1, 3)
+print(x.shape)  # torch.Size([2, 1, 3])
+
+y = x.squeeze(1)
+print(y.shape)  # torch.Size([2, 3])
+
+z = y.squeeze(1)
+print(z.shape)  # torch.Size([2, 3])
+```
+
+新建了一个维度为[2, 1, 3]的 Tensor，然后将第 1 维度的数据删除，得到 y，squeeze 执行成功是因为第 1 维度的大小为 1。然而在 y 上我们打算进一步删除第 1 维度的时候，就会发现删除失败了，这是因为 y 此刻的第 1 维度的大小为 3，suqeeze 不能删除。
+
+unsqueeze()：这个函数主要是对数据维度进行扩充。给指定位置加上维数为 1 的维度
+
+```py
+x = torch.rand(2, 1, 3)
+y = x.unsqueeze(2)
+print(y.shape)  # torch.Size([2, 1, 1, 3])
+```
+
+新建了一个维度为[2, 1, 3]的 Tensor，然后在第 2 维度插入一个维度，这样就得到了一个[2,1,1,3]大小的 tensor。
+
+### 2.3. Tensor 的连接操作
+
+在项目开发中，深度学习某一层神经元的数据可能有多个不同的来源，那么就需要将数据进行组合，这个组合的操作，称之为连接。
+
+#### 2.3.1. cat
+
+连接的操作函数如下。
+
+```py
+torch.cat(tensors, dim = 0, out = None)
+```
+
+dim 的数值是多少，两个矩阵就会按照相应维度的方向链接两个 Tensor。  
+
+dim=0, 按照“行”的方向拼接的。dim=1, 按照“列”的方向拼接的。
+
+```py
+C = torch.cat((A, B), 0)
+print(C)
+# tensor([[1., 1., 1.],
+#         [1., 1., 1.],
+#         [1., 1., 1.],
+#         [2., 2., 2.],
+#         [2., 2., 2.],
+#         [2., 2., 2.]])
+
+D=torch.cat((A, B), 1)
+print(D)
+# tensor([[1., 1., 1., 2., 2., 2.],
+#         [1., 1., 1., 2., 2., 2.],
+#  
+```
+
+cat 实际上是将多个 Tensor 在已有的维度上进行连接.
+
+#### 2.3.2. stack
+
+在实际图像算法开发中，有时候需要将多个单通道 Tensor（2 维）合并，得到多通道的结果（3 维）。这种增加维度拼接的方法叫做 stack。
+
+```py
+torch.stack(inputs, dim=0)
+```
+
+inputs 表示需要拼接的 Tensor，dim 表示新建立维度的方向。
+
+```py
+A = torch.arange(0, 4)
+print(A)
+# tensor([0, 1, 2, 3])
+
+B = torch.arange(5, 9)
+print(B)
+# tensor([5, 6, 7, 8])
+
+C = torch.stack((A, B), 0)
+print(C)
+# tensor([[0, 1, 2, 3],
+#         [5, 6, 7, 8]])
+
+D = torch.stack((A, B), 1)
+print(D)
+# tensor([[0, 5],
+#         [1, 6],
+#         [2, 7],
+#         [3, 8]])
+```
+
+### 2.4. Tensor 的切分操作
+
+连接的逆操作：切分。
+
+#### 2.4.1. chunk
+
+chunk 的作用就是将 Tensor 按照声明的 dim，进行尽可能平均的划分。
+
+```py
+torch.chunk(input, chunks, dim=0)
+```
+
+- input，它表示要做 chunk 操作的 Tensor。
+- chunks，它代表将要被划分的块的数量，而不是每组的数量。请注意，chunks 必须是整型。最后是 
+- dim，按照哪个维度来进行 chunk。
+
+```py
+A = torch.tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+B = torch.chunk(A, 2, 0)
+print(B)
+# (tensor([1, 2, 3, 4, 5]), tensor([ 6,  7,  8,  9, 10]))
+
+C = torch.chunk(A, 3, 0)
+print(C)
+# (tensor([1, 2, 3, 4]), tensor([5, 6, 7, 8]), tensor([ 9, 10]))
+
+D = torch.ones(4, 4)
+print(D)
+# tensor([[1., 1., 1., 1.],
+#         [1., 1., 1., 1.],
+#         [1., 1., 1., 1.],
+#         [1., 1., 1., 1.]])
+
+E = torch.chunk(D, 2, 0)
+print(E)
+# (tensor([[1., 1., 1., 1.],
+#         [1., 1., 1., 1.]]),
+# tensor([[1., 1., 1., 1.],
+#         [1., 1., 1., 1.]]))
+```
+
+#### 2.4.2. split
+
+```py
+torch.split(tensor, split_size_or_sections, dim=0)
+```
+
+split_size_or_sections 这个参数。当它为整数时，表示将 tensor 按照每块大小为这个整数的数值来切割；当这个参数为列表时，则表示将此 tensor 切成和列表中元素一样大小的块。
 
 
+```py
+A = torch.rand(4, 4)
+print(A)
+# tensor([[0.6418, 0.4171, 0.7372, 0.0733],
+#         [0.0935, 0.2372, 0.6912, 0.8677],
+#         [0.5263, 0.4145, 0.9292, 0.5671],
+#         [0.2284, 0.6938, 0.0956, 0.3823]])
+
+B = torch.split(A, 2, 0)
+print(B)
+# 原来 4x4 大小的 Tensor A，沿着第 0 维度，也就是沿“行”的方向，按照每组 2“行”的大小进行切分，得到了两个 2x4 大小的 Tensor。
+# (tensor([[0.6418, 0.4171, 0.7372, 0.0733],
+#         [0.0935, 0.2372, 0.6912, 0.8677]]),
+# tensor([[0.5263, 0.4145, 0.9292, 0.5671],
+#         [0.2284, 0.6938, 0.0956, 0.3823]]))
 
 
+C=torch.split(A, 3, 0)
+print(C)
+# (tensor([[0.6418, 0.4171, 0.7372, 0.0733],
+#         [0.0935, 0.2372, 0.6912, 0.8677],
+#         [0.5263, 0.4145, 0.9292, 0.5671]]),
+# tensor([[0.2284, 0.6938, 0.0956, 0.3823]]))
+```
 
+split_size_or_sections 是列表时的情况, torch.split(A, (2, 3), 0) 将 Tensor A，沿着第 0 维进行切分，每一个结果对应维度上的尺寸或者说大小，分别是 2（行），3（行）。
 
+```py
+A = torch.rand(5, 4)
+print(A)
+# tensor([[0.1005, 0.9666, 0.5322, 0.6775],
+#         [0.4990, 0.8725, 0.5627, 0.8360],
+#         [0.3427, 0.9351, 0.7291, 0.7306],
+#         [0.7939, 0.3007, 0.7258, 0.9482],
+#         [0.7249, 0.7534, 0.0027, 0.7793]])
 
+B = torch.split(A, (2, 3), 0)
+print(B)
+# 将 Tensor A，沿着第 0 维进行切分，每一个结果对应维度上的尺寸或者说大小，分别是 2（行），3（行）。
+# (tensor([[0.1005, 0.9666, 0.5322, 0.6775],
+#         [0.4990, 0.8725, 0.5627, 0.8360]]),
+# tensor([[0.3427, 0.9351, 0.7291, 0.7306],
+#         [0.7939, 0.3007, 0.7258, 0.9482],
+#         [0.7249, 0.7534, 0.0027, 0.7793]]))
+```
 
+#### 2.4.3. unbind
 
 
 
